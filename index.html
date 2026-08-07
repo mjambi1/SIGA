@@ -4,6 +4,24 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SIGA | مقياس دليل المؤشرات السبعة</title>
+<meta name="description" content="مقياس SIGA | مقياس دليل المؤشرات السبعة لاكتشاف الذات بصورة أكثر تكاملًا." />
+<link rel="canonical" href="https://siga-f5uz.vercel.app/" />
+<meta property="og:locale" content="ar_SA" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="SIGA" />
+<meta property="og:title" content="SIGA | مقياس دليل المؤشرات السبعة" />
+<meta property="og:description" content="اكتشف ذاتك بصورة أكثر تكاملًا عبر مقياس SIGA ودليل المؤشرات السبعة." />
+<meta property="og:url" content="https://siga-f5uz.vercel.app/" />
+<meta property="og:image" content="https://siga-f5uz.vercel.app/siga-preview.jpg?v=1" />
+<meta property="og:image:secure_url" content="https://siga-f5uz.vercel.app/siga-preview.jpg?v=1" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:width" content="1536" />
+<meta property="og:image:height" content="1024" />
+<meta property="og:image:alt" content="شعار SIGA - مقياس دليل المؤشرات السبعة" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="SIGA | مقياس دليل المؤشرات السبعة" />
+<meta name="twitter:description" content="اكتشف ذاتك بصورة أكثر تكاملًا عبر مقياس SIGA ودليل المؤشرات السبعة." />
+<meta name="twitter:image" content="https://siga-f5uz.vercel.app/siga-preview.jpg?v=1" />
 <meta name="theme-color" content="#073B6F" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -400,7 +418,7 @@ async function fetchAdminRecords(pin){
  const data=await response.json();return Array.isArray(data.records)?data.records:[];
 }
 async function adminLogin(){
- const pin=document.getElementById('adminPin').value;
+ const pin=document.getElementById('adminPin').value.trim();
  const errorBox=document.getElementById('adminError');
  errorBox.style.display='none';
  try{
