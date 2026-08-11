@@ -1,6 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 import { timingSafeEqual } from 'node:crypto';
 
+const EXPECTED_ANSWER_COUNT = 125;
+
 function getSql() {
   const connectionString = process.env.STORAGE_URL || process.env.DATABASE_URL;
   if (!connectionString) throw new Error('Database connection is not configured.');
@@ -54,8 +56,14 @@ export async function POST(request) {
     if (!profile.name || !profile.mobile || !profile.email) {
       return json({ error: 'missing_profile' }, 400);
     }
-    if (Object.keys(answers).length !== 180) {
-      return json({ error: 'incomplete_answers' }, 400);
+
+    const answerCount = Object.keys(answers).length;
+    if (answerCount !== EXPECTED_ANSWER_COUNT) {
+      return json({
+        error: 'incomplete_answers',
+        expected: EXPECTED_ANSWER_COUNT,
+        received: answerCount
+      }, 400);
     }
 
     const rows = await sql`
