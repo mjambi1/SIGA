@@ -1,7 +1,10 @@
 import { neon } from '@neondatabase/serverless';
 import { timingSafeEqual } from 'node:crypto';
 
-const EXPECTED_ANSWER_COUNT = 125;
+const EXPECTED_ANSWER_COUNTS = Object.freeze({
+  student: 125,
+  employee: 180
+});
 
 function getSql() {
   const connectionString = process.env.STORAGE_URL || process.env.DATABASE_URL;
@@ -38,38 +41,54 @@ function adminAuthorized(request) {
   const expected = normalizePin(process.env.SIGA_ADMIN_PIN);
   const supplied = normalizePin(request.headers.get('x-admin-pin'));
   if (!expected || !supplied) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(supplied);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
 function json(body, status = 200) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  return Response.json(body, {
+    status,
+    headers: { 'Cache-Control': 'no-store' }
+  });
+}
+
+function assessmentType(profile) {
+  if (profile?.assessmentType === 'student') return 'student';
+  if (profile?.assessmentType === 'employee') return 'employee';
+  return null;
 }
 
 export async function POST(request) {
   try {
-    const sql = getSql();
-    await ensureSchema(sql);
     const { profile = {}, answers = {}, results = {} } = await request.json();
 
     if (!profile.name || !profile.mobile || !profile.email) {
       return json({ error: 'missing_profile' }, 400);
     }
 
-    const answerCount = Object.keys(answers).length;
-    if (answerCount !== EXPECTED_ANSWER_COUNT) {
+    const type = assessmentType(profile);
+    if (!type) {
+      return json({ error: 'invalid_assessment_type' }, 400);
+    }
+
+    const expectedAnswerCount = EXPECTED_ANSWER_COUNTS[type];
+    const receivedAnswerCount = Object.keys(answers).length;
+    if (receivedAnswerCount !== expectedAnswerCount) {
       return json({
         error: 'incomplete_answers',
-        expected: EXPECTED_ANSWER_COUNT,
-        received: answerCount
+        assessmentType: type,
+        expected: expectedAnswerCount,
+        received: receivedAnswerCount
       }, 400);
     }
 
+    const sql = getSql();
+    await ensureSchema(sql);
     const rows = await sql`
       INSERT INTO siga_results (profile, answers, results)
       VALUES (
-        ${JSON.stringify(profile)}::jsonb,
+        ${JSON.stringify({ ...profile, assessmentType: type })}::jsonb,
         ${JSON.stringify(answers)}::jsonb,
         ${JSON.stringify(results)}::jsonb
       )
@@ -98,13 +117,11 @@ export async function GET(request) {
 
     const sql = getSql();
     await ensureSchema(sql);
-
     const rows = await sql`
       SELECT request_no, profile, answers, results, status, completed_at
       FROM siga_results
       ORDER BY request_no DESC
     `;
-
     return json({
       records: rows.map(row => ({
         id: requestId(row.request_no),
@@ -132,24 +149,16 @@ export async function DELETE(request) {
 
     const id = new URL(request.url).searchParams.get('id') || '';
     const match = id.match(/^SIGA-(\d+)$/);
-
-    if (!match) {
-      return json({ error: 'invalid_request_id' }, 400);
-    }
+    if (!match) return json({ error: 'invalid_request_id' }, 400);
 
     const sql = getSql();
     await ensureSchema(sql);
-
     const deleted = await sql`
       DELETE FROM siga_results
       WHERE request_no = ${Number(match[1])}
       RETURNING request_no
     `;
-
-    if (!deleted.length) {
-      return json({ error: 'not_found' }, 404);
-    }
-
+    if (!deleted.length) return json({ error: 'not_found' }, 404);
     return json({ ok: true });
   } catch (error) {
     console.error('SIGA DELETE error', error);
