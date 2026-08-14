@@ -1,6 +1,18 @@
 import { neon } from '@neondatabase/serverless';
 import { timingSafeEqual } from 'node:crypto';
 
+const EXPECTED_ANSWER_COUNTS = Object.freeze({
+  student: 125,
+  employee: 180
+});
+
+const STUDENT_STAGES = new Set([
+  'الصف الثالث المتوسط',
+  'الصف الأول الثانوي',
+  'الصف الثاني الثانوي',
+  'الصف الثالث الثانوي'
+]);
+
 function getSql() {
   const connectionString = process.env.STORAGE_URL || process.env.DATABASE_URL;
   if (!connectionString) throw new Error('Database connection is not configured.');
@@ -36,39 +48,97 @@ function adminAuthorized(request) {
   const expected = normalizePin(process.env.SIGA_ADMIN_PIN);
   const supplied = normalizePin(request.headers.get('x-admin-pin'));
   if (!expected || !supplied) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(supplied);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
 function json(body, status = 200) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  return Response.json(body, {
+    status,
+    headers: { 'Cache-Control': 'no-store' }
+  });
+}
+
+function assessmentType(profile) {
+  if (profile?.assessmentType === 'student') return 'student';
+  if (profile?.assessmentType === 'employee') return 'employee';
+  return null;
+}
+
+function present(value) {
+  return String(value ?? '').trim().length > 0;
+}
+
+function validProfile(profile, type) {
+  const age = Number(profile?.age);
+  const commonComplete = [
+    profile?.name,
+    profile?.mobile,
+    profile?.email,
+    profile?.country,
+    profile?.city
+  ].every(present);
+
+  if (!commonComplete || !Number.isFinite(age)) return false;
+
+  if (type === 'student') {
+    return age >= 15 && STUDENT_STAGES.has(String(profile?.schoolStage ?? '').trim());
+  }
+
+  return age >= 18 && [
+    profile?.gender,
+    profile?.org,
+    profile?.job,
+    profile?.major
+  ].every(present);
 }
 
 export async function POST(request) {
   try {
-    const sql = getSql();
-    await ensureSchema(sql);
     const { profile = {}, answers = {}, results = {} } = await request.json();
 
-    if (!profile.name || !profile.mobile || !profile.email) {
-      return json({ error: 'missing_profile' }, 400);
-    }
-    if (Object.keys(answers).length !== 180) {
-      return json({ error: 'incomplete_answers' }, 400);
+    const type = assessmentType(profile);
+    if (!type) {
+      return json({ error: 'invalid_assessment_type' }, 400);
     }
 
+    if (!validProfile(profile, type)) {
+      return json({
+        error: 'invalid_profile',
+        assessmentType: type,
+        minimumAge: type === 'student' ? 15 : 18
+      }, 400);
+    }
+
+    const expectedAnswerCount = EXPECTED_ANSWER_COUNTS[type];
+    const receivedAnswerCount = Object.keys(answers).length;
+    if (receivedAnswerCount !== expectedAnswerCount) {
+      return json({
+        error: 'incomplete_answers',
+        assessmentType: type,
+        expected: expectedAnswerCount,
+        received: receivedAnswerCount
+      }, 400);
+    }
+
+    const sql = getSql();
+    await ensureSchema(sql);
     const rows = await sql`
       INSERT INTO siga_results (profile, answers, results)
       VALUES (
-        ${JSON.stringify(profile)}::jsonb,
+        ${JSON.stringify({ ...profile, assessmentType: type })}::jsonb,
         ${JSON.stringify(answers)}::jsonb,
         ${JSON.stringify(results)}::jsonb
       )
       RETURNING request_no, completed_at
     `;
     const row = rows[0];
-    return json({ id: requestId(row.request_no), completedAt: row.completed_at, status: 'مكتمل' }, 201);
+    return json({
+      id: requestId(row.request_no),
+      completedAt: row.completed_at,
+      status: 'مكتمل'
+    }, 201);
   } catch (error) {
     console.error('SIGA POST error', error);
     return json({ error: 'server_error' }, 500);
@@ -77,8 +147,13 @@ export async function POST(request) {
 
 export async function GET(request) {
   try {
-    if (!normalizePin(process.env.SIGA_ADMIN_PIN)) return json({ error: 'admin_not_configured' }, 503);
-    if (!adminAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    if (!normalizePin(process.env.SIGA_ADMIN_PIN)) {
+      return json({ error: 'admin_not_configured' }, 503);
+    }
+    if (!adminAuthorized(request)) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+
     const sql = getSql();
     await ensureSchema(sql);
     const rows = await sql`
@@ -104,15 +179,24 @@ export async function GET(request) {
 
 export async function DELETE(request) {
   try {
-    if (!normalizePin(process.env.SIGA_ADMIN_PIN)) return json({ error: 'admin_not_configured' }, 503);
-    if (!adminAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    if (!normalizePin(process.env.SIGA_ADMIN_PIN)) {
+      return json({ error: 'admin_not_configured' }, 503);
+    }
+    if (!adminAuthorized(request)) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+
     const id = new URL(request.url).searchParams.get('id') || '';
     const match = id.match(/^SIGA-(\d+)$/);
     if (!match) return json({ error: 'invalid_request_id' }, 400);
 
     const sql = getSql();
     await ensureSchema(sql);
-    const deleted = await sql`DELETE FROM siga_results WHERE request_no = ${Number(match[1])} RETURNING request_no`;
+    const deleted = await sql`
+      DELETE FROM siga_results
+      WHERE request_no = ${Number(match[1])}
+      RETURNING request_no
+    `;
     if (!deleted.length) return json({ error: 'not_found' }, 404);
     return json({ ok: true });
   } catch (error) {
