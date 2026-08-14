@@ -6,6 +6,13 @@ const EXPECTED_ANSWER_COUNTS = Object.freeze({
   employee: 180
 });
 
+const STUDENT_STAGES = new Set([
+  'الصف الثالث المتوسط',
+  'الصف الأول الثانوي',
+  'الصف الثاني الثانوي',
+  'الصف الثالث الثانوي'
+]);
+
 function getSql() {
   const connectionString = process.env.STORAGE_URL || process.env.DATABASE_URL;
   if (!connectionString) throw new Error('Database connection is not configured.');
@@ -59,17 +66,49 @@ function assessmentType(profile) {
   return null;
 }
 
+function present(value) {
+  return String(value ?? '').trim().length > 0;
+}
+
+function validProfile(profile, type) {
+  const age = Number(profile?.age);
+  const commonComplete = [
+    profile?.name,
+    profile?.mobile,
+    profile?.email,
+    profile?.country,
+    profile?.city
+  ].every(present);
+
+  if (!commonComplete || !Number.isFinite(age)) return false;
+
+  if (type === 'student') {
+    return age >= 15 && STUDENT_STAGES.has(String(profile?.schoolStage ?? '').trim());
+  }
+
+  return age >= 18 && [
+    profile?.gender,
+    profile?.org,
+    profile?.job,
+    profile?.major
+  ].every(present);
+}
+
 export async function POST(request) {
   try {
     const { profile = {}, answers = {}, results = {} } = await request.json();
 
-    if (!profile.name || !profile.mobile || !profile.email) {
-      return json({ error: 'missing_profile' }, 400);
-    }
-
     const type = assessmentType(profile);
     if (!type) {
       return json({ error: 'invalid_assessment_type' }, 400);
+    }
+
+    if (!validProfile(profile, type)) {
+      return json({
+        error: 'invalid_profile',
+        assessmentType: type,
+        minimumAge: type === 'student' ? 15 : 18
+      }, 400);
     }
 
     const expectedAnswerCount = EXPECTED_ANSWER_COUNTS[type];
