@@ -78,6 +78,7 @@ function validProfile(profile, type) {
   const age = Number(profile?.age);
   const commonComplete = [
     profile?.name,
+    profile?.gender,
     profile?.mobile,
     profile?.email,
     profile?.country,
@@ -91,7 +92,6 @@ function validProfile(profile, type) {
   }
 
   return age >= 18 && [
-    profile?.gender,
     profile?.org,
     profile?.job,
     profile?.major
