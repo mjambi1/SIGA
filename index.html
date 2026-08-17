@@ -371,14 +371,21 @@ function restartTestNow(){
   closeRestartConfirm();if(selectedType){localStorage.removeItem(typeKey('answers'));localStorage.removeItem(typeKey('current'));localStorage.removeItem(typeKey('completed'))}localStorage.removeItem(PROFILE_KEY);answers={};current=0;profile={};['p_name','p_age','p_gender','p_mobile','p_email','p_country','p_city','p_org','p_job','p_major'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('finish').style.display='none';document.getElementById('questionCard').style.display='block';consent.checked=false;updateStartState();showOnly('landing');location.hash='';window.scrollTo(0,0);
 }
 function handleSIGARoute(){if(location.hash==='#admin')showAdmin()}
+const VISIT_SESSION_KEY='siga_visit_registered_v4';
 async function registerPageVisit(){
   const counter=document.getElementById('visitorCount');
+  let shouldCount=false;
   try{
-    const response=await fetch('/api/visits',{method:'POST',headers:{'Accept':'application/json'},cache:'no-store',keepalive:true});
+    shouldCount=sessionStorage.getItem(VISIT_SESSION_KEY)!=='1';
+    if(shouldCount)sessionStorage.setItem(VISIT_SESSION_KEY,'1');
+    const response=await fetch('/api/visits',{method:shouldCount?'POST':'GET',headers:{'Accept':'application/json'},cache:'no-store',keepalive:shouldCount});
     if(!response.ok)throw new Error('visit_count_failed');
     const data=await response.json(),count=Number(data.count);
     if(counter)counter.textContent=Number.isFinite(count)?count.toLocaleString('ar-SA'):'—';
-  }catch(error){if(counter)counter.textContent='—'}
+  }catch(error){
+    if(shouldCount)sessionStorage.removeItem(VISIT_SESSION_KEY);
+    if(counter)counter.textContent='—';
+  }
 }
 window.addEventListener('hashchange',handleSIGARoute);window.addEventListener('load',handleSIGARoute);
 window.addEventListener('pageshow',registerPageVisit);
