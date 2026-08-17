@@ -13,6 +13,18 @@ async function ensureSchema(sql) {
       first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS siga_visit_counter (
+      counter_id SMALLINT PRIMARY KEY CHECK (counter_id = 1),
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    INSERT INTO siga_visit_counter (counter_id, visit_count)
+    SELECT 1, COUNT(*)::bigint FROM siga_visitors
+    ON CONFLICT (counter_id) DO NOTHING
+  `;
 }
 
 function json(body, status = 200) {
@@ -22,12 +34,12 @@ function json(body, status = 200) {
   });
 }
 
-function validVisitorId(value) {
-  return typeof value === 'string' && /^[A-Za-z0-9-]{8,100}$/.test(value);
-}
-
 async function visitorCount(sql) {
-  const rows = await sql`SELECT COUNT(*)::integer AS count FROM siga_visitors`;
+  const rows = await sql`
+    SELECT visit_count AS count
+    FROM siga_visit_counter
+    WHERE counter_id = 1
+  `;
   return Number(rows[0]?.count || 0);
 }
 
@@ -42,20 +54,20 @@ export async function GET() {
   }
 }
 
-export async function POST(request) {
+export async function POST() {
   try {
-    const { visitorId = '' } = await request.json();
-    if (!validVisitorId(visitorId)) return json({ error: 'invalid_visitor_id' }, 400);
-
     const sql = getSql();
     await ensureSchema(sql);
-    await sql`
-      INSERT INTO siga_visitors (visitor_id)
-      VALUES (${visitorId})
-      ON CONFLICT (visitor_id) DO NOTHING
+    const rows = await sql`
+      INSERT INTO siga_visit_counter (counter_id, visit_count, updated_at)
+      VALUES (1, 1, NOW())
+      ON CONFLICT (counter_id) DO UPDATE
+      SET visit_count = siga_visit_counter.visit_count + 1,
+          updated_at = NOW()
+      RETURNING visit_count AS count
     `;
 
-    return json({ count: await visitorCount(sql) });
+    return json({ count: Number(rows[0]?.count || 0) });
   } catch (error) {
     console.error('SIGA visitor POST error', error);
     return json({ error: 'server_error' }, 500);
