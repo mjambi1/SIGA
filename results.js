@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
   student: 125,
@@ -29,6 +29,10 @@ async function ensureSchema(sql) {
       status TEXT NOT NULL DEFAULT 'مكتمل',
       completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `;
+  await sql`
+    ALTER TABLE siga_results
+    ADD COLUMN IF NOT EXISTS review_token TEXT
   `;
 }
 
@@ -122,14 +126,16 @@ export async function POST(request) {
       }, 400);
     }
 
+    const reviewToken = randomUUID();
     const sql = getSql();
     await ensureSchema(sql);
     const rows = await sql`
-      INSERT INTO siga_results (profile, answers, results)
+      INSERT INTO siga_results (profile, answers, results, review_token)
       VALUES (
         ${JSON.stringify({ ...profile, assessmentType: type })}::jsonb,
         ${JSON.stringify(answers)}::jsonb,
-        ${JSON.stringify(results)}::jsonb
+        ${JSON.stringify(results)}::jsonb,
+        ${reviewToken}
       )
       RETURNING request_no, completed_at
     `;
@@ -137,7 +143,8 @@ export async function POST(request) {
     return json({
       id: requestId(row.request_no),
       completedAt: row.completed_at,
-      status: 'مكتمل'
+      status: 'مكتمل',
+      reviewToken
     }, 201);
   } catch (error) {
     console.error('SIGA POST error', error);
