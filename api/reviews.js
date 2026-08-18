@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 function getSql() {
   const connectionString = process.env.STORAGE_URL || process.env.DATABASE_URL;
@@ -22,6 +22,10 @@ async function ensureSchema(sql) {
   await sql`
     ALTER TABLE siga_results
     ADD COLUMN IF NOT EXISTS review_token TEXT
+  `;
+  await sql`
+    ALTER TABLE siga_results
+    ADD COLUMN IF NOT EXISTS review_invited_at TIMESTAMPTZ
   `;
   await sql`
     CREATE TABLE IF NOT EXISTS siga_reviews (
@@ -92,7 +96,8 @@ export async function GET(request) {
   try {
     const sql = getSql();
     await ensureSchema(sql);
-    const adminView = new URL(request.url).searchParams.get('admin') === '1';
+    const url = new URL(request.url);
+    const adminView = url.searchParams.get('admin') === '1';
 
     if (adminView) {
       if (!normalizePin(process.env.SIGA_ADMIN_PIN)) return json({ error: 'admin_not_configured' }, 503);
@@ -124,8 +129,30 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { requestId = '', reviewToken = '', displayName = '', rating, comment = '' } = await request.json();
+    const payload = await request.json();
+    const { action = '', requestId = '', reviewToken = '', displayName = '', rating, comment = '' } = payload;
     const number = requestNumber(requestId);
+
+    if (action === 'validate') {
+      if (!number || !reviewToken) return json({ valid: false, error: 'invalid_link' }, 400);
+      const sql = getSql();
+      await ensureSchema(sql);
+      const rows = await sql`
+        SELECT results.review_token, results.review_invited_at,
+               reviews.review_id
+        FROM siga_results AS results
+        LEFT JOIN siga_reviews AS reviews ON reviews.request_no = results.request_no
+        WHERE results.request_no = ${number} AND results.status = 'مكتمل'
+        LIMIT 1
+      `;
+      const record = rows[0];
+      if (!record || !record.review_invited_at || !safeEqual(record.review_token, reviewToken)) {
+        return json({ valid: false, error: 'invalid_link' }, 403);
+      }
+      if (record.review_id) return json({ valid: false, error: 'already_submitted' }, 409);
+      return json({ valid: true });
+    }
+
     const numericRating = Number(rating);
     const cleanDisplayName = String(displayName).trim();
     const cleanComment = String(comment).trim();
@@ -142,9 +169,9 @@ export async function POST(request) {
     const sql = getSql();
     await ensureSchema(sql);
     const completed = await sql`
-      SELECT request_no, profile, review_token
+      SELECT request_no, profile, review_token, review_invited_at
       FROM siga_results
-      WHERE request_no = ${number} AND status = 'مكتمل'
+      WHERE request_no = ${number} AND status = 'مكتمل' AND review_invited_at IS NOT NULL
       LIMIT 1
     `;
     const record = completed[0];
@@ -189,6 +216,42 @@ export async function PATCH(request) {
     return json({ ok: true, status });
   } catch (error) {
     console.error('SIGA reviews PATCH error', error);
+    return json({ error: 'server_error' }, 500);
+  }
+}
+
+export async function PUT(request) {
+  try {
+    if (!normalizePin(process.env.SIGA_ADMIN_PIN)) return json({ error: 'admin_not_configured' }, 503);
+    if (!adminAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    const { requestId = '' } = await request.json();
+    const number = requestNumber(requestId);
+    if (!number) return json({ error: 'invalid_request_id' }, 400);
+
+    const sql = getSql();
+    await ensureSchema(sql);
+    const existing = await sql`
+      SELECT review_id FROM siga_reviews WHERE request_no = ${number} LIMIT 1
+    `;
+    if (existing.length) return json({ error: 'already_submitted' }, 409);
+
+    const reviewToken = randomUUID();
+    const updated = await sql`
+      UPDATE siga_results
+      SET review_token = CASE WHEN review_invited_at IS NULL THEN ${reviewToken} ELSE review_token END,
+          review_invited_at = COALESCE(review_invited_at, NOW())
+      WHERE request_no = ${number} AND status = 'مكتمل'
+      RETURNING request_no, review_token, review_invited_at
+    `;
+    if (!updated.length) return json({ error: 'not_found' }, 404);
+    return json({
+      ok: true,
+      requestId: `SIGA-${String(number).padStart(6, '0')}`,
+      reviewToken: updated[0].review_token,
+      reviewInvitedAt: updated[0].review_invited_at
+    });
+  } catch (error) {
+    console.error('SIGA review invite PUT error', error);
     return json({ error: 'server_error' }, 500);
   }
 }

@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
   student: 125,
@@ -33,6 +33,10 @@ async function ensureSchema(sql) {
   await sql`
     ALTER TABLE siga_results
     ADD COLUMN IF NOT EXISTS review_token TEXT
+  `;
+  await sql`
+    ALTER TABLE siga_results
+    ADD COLUMN IF NOT EXISTS review_invited_at TIMESTAMPTZ
   `;
 }
 
@@ -126,16 +130,14 @@ export async function POST(request) {
       }, 400);
     }
 
-    const reviewToken = randomUUID();
     const sql = getSql();
     await ensureSchema(sql);
     const rows = await sql`
-      INSERT INTO siga_results (profile, answers, results, review_token)
+      INSERT INTO siga_results (profile, answers, results)
       VALUES (
         ${JSON.stringify({ ...profile, assessmentType: type })}::jsonb,
         ${JSON.stringify(answers)}::jsonb,
-        ${JSON.stringify(results)}::jsonb,
-        ${reviewToken}
+        ${JSON.stringify(results)}::jsonb
       )
       RETURNING request_no, completed_at
     `;
@@ -143,8 +145,7 @@ export async function POST(request) {
     return json({
       id: requestId(row.request_no),
       completedAt: row.completed_at,
-      status: 'مكتمل',
-      reviewToken
+      status: 'مكتمل'
     }, 201);
   } catch (error) {
     console.error('SIGA POST error', error);
@@ -164,7 +165,8 @@ export async function GET(request) {
     const sql = getSql();
     await ensureSchema(sql);
     const rows = await sql`
-      SELECT request_no, profile, answers, results, status, completed_at
+      SELECT request_no, profile, answers, results, status, completed_at,
+             review_token, review_invited_at
       FROM siga_results
       ORDER BY request_no DESC
     `;
@@ -175,7 +177,9 @@ export async function GET(request) {
         answers: row.answers,
         results: row.results,
         status: row.status,
-        completedAt: row.completed_at
+        completedAt: row.completed_at,
+        reviewToken: row.review_invited_at ? row.review_token : null,
+        reviewInvitedAt: row.review_invited_at
       }))
     });
   } catch (error) {
