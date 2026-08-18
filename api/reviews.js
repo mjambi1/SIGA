@@ -139,6 +139,9 @@ export async function POST(request) {
       await ensureSchema(sql);
       const rows = await sql`
         SELECT results.review_token, results.review_invited_at,
+               results.profile->>'name' AS registered_name,
+               results.profile->>'assessmentType' AS assessment_type,
+               results.profile->>'gender' AS gender,
                reviews.review_id
         FROM siga_results AS results
         LEFT JOIN siga_reviews AS reviews ON reviews.request_no = results.request_no
@@ -150,7 +153,12 @@ export async function POST(request) {
         return json({ valid: false, error: 'invalid_link' }, 403);
       }
       if (record.review_id) return json({ valid: false, error: 'already_submitted' }, 409);
-      return json({ valid: true });
+      return json({
+        valid: true,
+        name: String(record.registered_name || '').trim(),
+        assessmentType: record.assessment_type === 'student' ? 'student' : 'employee',
+        gender: record.gender === 'أنثى' ? 'أنثى' : 'ذكر'
+      });
     }
 
     const numericRating = Number(rating);
