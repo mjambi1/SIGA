@@ -81,7 +81,10 @@ function mapReview(row, includeRequest = false) {
     status: row.status,
     createdAt: row.created_at
   };
-  if (includeRequest) review.requestId = `SIGA-${String(row.request_no).padStart(6, '0')}`;
+  if (includeRequest) {
+    review.requestId = `SIGA-${String(row.request_no).padStart(6, '0')}`;
+    review.registeredName = String(row.registered_name || '').trim();
+  }
   return review;
 }
 
@@ -95,8 +98,11 @@ export async function GET(request) {
       if (!normalizePin(process.env.SIGA_ADMIN_PIN)) return json({ error: 'admin_not_configured' }, 503);
       if (!adminAuthorized(request)) return json({ error: 'unauthorized' }, 401);
       const rows = await sql`
-        SELECT review_id, request_no, reviewer_name, rating, comment, status, created_at
-        FROM siga_reviews
+        SELECT reviews.review_id, reviews.request_no, reviews.reviewer_name,
+               reviews.rating, reviews.comment, reviews.status, reviews.created_at,
+               results.profile->>'name' AS registered_name
+        FROM siga_reviews AS reviews
+        JOIN siga_results AS results ON results.request_no = reviews.request_no
         ORDER BY review_id DESC
       `;
       return json({ reviews: rows.map(row => mapReview(row, true)) });
@@ -118,15 +124,19 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { requestId = '', reviewToken = '', rating, comment = '' } = await request.json();
+    const { requestId = '', reviewToken = '', displayName = '', rating, comment = '' } = await request.json();
     const number = requestNumber(requestId);
     const numericRating = Number(rating);
+    const cleanDisplayName = String(displayName).trim();
     const cleanComment = String(comment).trim();
     if (!number || !Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
       return json({ error: 'invalid_review' }, 400);
     }
     if (cleanComment.length < 3 || cleanComment.length > 800) {
       return json({ error: 'invalid_comment' }, 400);
+    }
+    if (cleanDisplayName.length < 2 || cleanDisplayName.length > 60) {
+      return json({ error: 'invalid_display_name' }, 400);
     }
 
     const sql = getSql();
@@ -142,10 +152,9 @@ export async function POST(request) {
       return json({ error: 'not_eligible' }, 403);
     }
 
-    const reviewerName = String(record.profile?.name || 'مستفيد').trim().slice(0, 120);
     const inserted = await sql`
       INSERT INTO siga_reviews (request_no, reviewer_name, rating, comment)
-      VALUES (${number}, ${reviewerName}, ${numericRating}, ${cleanComment})
+      VALUES (${number}, ${cleanDisplayName}, ${numericRating}, ${cleanComment})
       ON CONFLICT (request_no) DO NOTHING
       RETURNING review_id
     `;
