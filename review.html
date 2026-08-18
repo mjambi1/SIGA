@@ -37,7 +37,7 @@
   <div class="spinner" aria-hidden="true"></div>
 </main>
 <script>
-const params=new URLSearchParams(location.search),request=params.get('request'),token=params.get('token');
+const hash=location.hash.slice(1),params=new URLSearchParams(hash.startsWith('review?')?hash.slice(7):location.search),request=params.get('request'),token=params.get('token');
 if(request&&token)location.replace(`/#review?request=${encodeURIComponent(request)}&token=${encodeURIComponent(token)}`);else location.replace('/');
 </script>
 </body>
