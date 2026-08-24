@@ -3,7 +3,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
   student: 125,
-  employee: 180
+  employee: 170
 });
 
 const STUDENT_STAGES = new Set([
