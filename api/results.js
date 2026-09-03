@@ -2,8 +2,8 @@ import { neon } from '@neondatabase/serverless';
 import { timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
-  student: 125,
-  employee: 170
+  student: 111,
+  employee: 135
 });
 
 const STUDENT_STAGES = new Set([
