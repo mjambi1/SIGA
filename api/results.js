@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
   student: 111,
-  employee: 135
+  employee: 92
 });
 
 const STUDENT_STAGES = new Set([
