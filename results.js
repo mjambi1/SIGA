@@ -2,7 +2,7 @@ import { neon } from '@neondatabase/serverless';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
-  student: 111,
+  student: 84,
   employee: 92
 });
 
