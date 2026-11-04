@@ -1,5 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 import { timingSafeEqual } from 'node:crypto';
+import webpush from 'web-push';
 
 const EXPECTED_ANSWER_COUNTS = Object.freeze({
   student: 84,
@@ -38,6 +39,49 @@ async function ensureSchema(sql) {
     ALTER TABLE siga_results
     ADD COLUMN IF NOT EXISTS review_invited_at TIMESTAMPTZ
   `;
+}
+
+async function notifyAdminsOfCompletion(sql, record) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS siga_settings (
+        key TEXT PRIMARY KEY,
+        value JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS siga_push_subscriptions (
+        endpoint TEXT PRIMARY KEY,
+        subscription JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    const keyRows = await sql`SELECT value FROM siga_settings WHERE key = 'vapid_keys' LIMIT 1`;
+    const keys = keyRows[0]?.value;
+    if (!keys?.publicKey || !keys?.privateKey) return;
+    const subscriptions = await sql`SELECT endpoint, subscription FROM siga_push_subscriptions`;
+    if (!subscriptions.length) return;
+    webpush.setVapidDetails('mailto:mohammed.imolhem@gmail.com', keys.publicKey, keys.privateKey);
+    const payload = JSON.stringify({
+      title: 'مستفيد جديد أكمل مقياس SIGA',
+      body: `${record.name} • ${record.category} • ${record.id}`,
+      requestId: record.id,
+      url: '/#admin'
+    });
+    const deliveries = await Promise.allSettled(subscriptions.map(item =>
+      webpush.sendNotification(item.subscription, payload, { TTL: 3600, urgency: 'high' })
+    ));
+    const expired = deliveries.flatMap((delivery, index) => {
+      if (delivery.status !== 'rejected') return [];
+      const status = delivery.reason?.statusCode;
+      return status === 404 || status === 410 ? [subscriptions[index].endpoint] : [];
+    });
+    await Promise.all(expired.map(endpoint => sql`DELETE FROM siga_push_subscriptions WHERE endpoint = ${endpoint}`));
+  } catch (error) {
+    console.error('SIGA push delivery error', error);
+  }
 }
 
 function requestId(number) {
@@ -142,8 +186,14 @@ export async function POST(request) {
       RETURNING request_no, completed_at
     `;
     const row = rows[0];
+    const id = requestId(row.request_no);
+    await notifyAdminsOfCompletion(sql, {
+      id,
+      name: String(profile.name || 'مستفيد'),
+      category: type === 'student' ? 'طالب' : 'موظف/قيادي'
+    });
     return json({
-      id: requestId(row.request_no),
+      id,
       completedAt: row.completed_at,
       status: 'مكتمل'
     }, 201);
