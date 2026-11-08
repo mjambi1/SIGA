@@ -82,6 +82,25 @@ const compGroups={
  'قيادة الآخرين':['التواصل الفعّال','التأثير والإقناع','تطوير الآخرين','العمل الجماعي'],
  'قيادة العمل':['اتخاذ القرار','حل المشكلات','التفكير الاستراتيجي','إدارة التغيير']
 };
+const HOLLAND_CODES=['R','I','A','S','E','C'];
+const HOLLAND_LABELS=['Rالواقعي','Iالبحثي','Aالفني','Sالاجتماعي','Eالريادي','Cالتنظيمي'];
+function hollandTotals(record){
+  const totals={R:0,I:0,A:0,S:0,E:0,C:0};
+  const questions=getQuestionList(assessmentTypeOf(record)).filter(q=>q.mode==='rank'&&q.meta?.indicator==='هولاند');
+  for(const question of questions){
+    const ranking=record.answers?.[question.id]?.ranking;
+    if(!Array.isArray(ranking))continue;
+    ranking.forEach((optionIndex,position)=>{
+      const letter=String(question.options?.[optionIndex]?.code||'').trim().charAt(0).toUpperCase();
+      if(Object.prototype.hasOwnProperty.call(totals,letter))totals[letter]+=Math.max(1,4-position);
+    });
+  }
+  HOLLAND_CODES.forEach((letter,index)=>{
+    const fromSaved=metric(record,'هولاند',letter+' '+HOLLAND_LABELS[index].slice(1));
+    if(fromSaved&&Number.isFinite(Number(fromSaved.score)))totals[letter]=Number(fromSaved.score);
+  });
+  return totals;
+}
 function summary(record,set){
   const table=(row,col,indicator,labels,rawMax)=>{
     labels.forEach((label,i)=>{const pct=score(record,indicator,label);set(excelCol(col)+(row+i),label);set(excelCol(col+1)+(row+i),pct);if(rawMax)set(excelCol(col-1)+(row+i),Math.round(pct*rawMax*10000)/10000)});
@@ -114,8 +133,16 @@ function summary(record,set){
   }));
   const intelligence=['الذكاء الاجتماعي','الذكاء البصري','الذكاء الحركي','الذكاء الذاتي','الذكاء السمعي','الذكاء اللغوي','الذكاء المنطقي'];
   intelligence.forEach((label,i)=>{const v=score(record,'الذكاءات',label),row=85+i;set('M'+row,label);set('N'+row,v);set('O'+row,v*8)});
-  const holland=['R الواقعي','I البحثي','A الفني','S الاجتماعي','E الريادي','C التنظيمي'];
-  holland.forEach((label,i)=>{const v=score(record,'هولاند',label),row=96+i;set('M'+row,label);set('N'+row,v);set('O'+row,v*16)});
+  const holland=hollandTotals(record);
+  HOLLAND_CODES.forEach((letter,i)=>{
+    const row=96+i,total=holland[letter]||0;
+    set('M'+row,HOLLAND_LABELS[i]);
+    set('N'+row,total/16);
+    set('O'+row,total);
+  });
+  set('M2','التفكير');
+  set('M13','السلوك');
+  set('M95','الميول المهنية');
   const isStudent=assessmentTypeOf(record)==='student';
   const studentGroups={
     'قيادة الذات':['1. إدارة الذات والانضباط','2. التخطيط وإدارة الوقت','3. تحمل المسؤولية','4. التعلم الذاتي'],
@@ -134,25 +161,40 @@ function summary(record,set){
   });
 }
 function buildRows(record,set){
-  const type=assessmentTypeOf(record),qs=getQuestionList(type);
+  const type=assessmentTypeOf(record),qs=getQuestionList(type),holland=hollandTotals(record);
+  let hollandRow=0;
   qs.forEach((q,index)=>{
-    const r=index+2,base=record.answers?.[q.id],ref=col=>col+r;
+    const r=index+2,base=record.answers?.[q.id],ref=col=>col+r,indicator=q.meta?.indicator||'';
     set(ref('A'),record.id||'');set(ref('B'),record.profile?.name||'');
-    set(ref('C'),typeLabel(type));set(ref('D'),q.id);set(ref('J'),q.meta?.indicator||'');
+    set(ref('C'),typeLabel(type));set(ref('D'),q.id);
     if(q.mode==='binary'){
       const chosen=Number.isInteger(base?.choice)?base.choice:-1;
       set(ref('E'),typeof answerLabel==='function'?answerLabel(q,base):'');
-      set(ref('F'),chosen===0?1:0);set(ref('G'),q.options?.[0]?.code||'');
-      set(ref('H'),q.options?.[1]?.code||'');set(ref('I'),chosen===1?1:0);
-    }else if(q.mode==='rank'){
-      const ranking=Array.isArray(base?.ranking)?base.ranking:[],excluded=Array.isArray(base?.excluded)?base.excluded:[];
-      set(ref('E'),ranking.map(i=>q.options?.[i]?.code||'').join(' ← '));
-      for(let j=0;j<4;j++){const pos=ranking.indexOf(j);set(ref(excelCol(6+j)),pos>=0?Math.max(1,4-pos):(excluded.includes(j)?0:0))}
-      set(ref('K'),q.options?.map(o=>o.code).join(' | ')||'');
+      set(ref('F'),chosen===0?1:'');
+      set(ref('G'),q.options?.[0]?.code||'');
+      set(ref('H'),q.options?.[1]?.code||'');
+      set(ref('I'),chosen===1?1:'');
+      set(ref('J'),indicator==='هيرمان'?'التفكير':indicator==='ديسك'?'السلوك':indicator);
+      set(ref('K'),'');
+    }else if(q.mode==='rank'&&indicator==='هولاند'){
+      const letter=HOLLAND_CODES[hollandRow],label=HOLLAND_LABELS[hollandRow];
+      hollandRow++;
+      const ranking=Array.isArray(base?.ranking)?base.ranking:[];
+      const excluded=Array.isArray(base?.excluded)?base.excluded:[];
+      set(ref('E'),'');
+      for(let j=0;j<4;j++){
+        const position=ranking.indexOf(j);
+        set(ref(excelCol(6+j)),position>=0?Math.max(1,4-position):0);
+      }
+      set(ref('J'),label||'');
+      set(ref('K'),letter?holland[letter]:0);
     }else{
       const n=Number(base?.score);
       set(ref('E'),typeof answerLabel==='function'?answerLabel(q,base):'');
-      set(ref('F'),Number.isFinite(n)?n+1:0);set(ref('K'),q.meta?.dimension||'');
+      set(ref('F'),base&&Number.isFinite(n)?n+1:'');
+      set(ref('G'),'');set(ref('H'),'');set(ref('I'),'');
+      set(ref('J'),indicator);
+      set(ref('K'),q.meta?.dimension||'');
     }
   });
 }
@@ -213,6 +255,12 @@ async function createReport(buffer,record){
   const parts=Object.keys(zip.files).filter(n=>/^xl\/charts\/chart\d+\.xml$/.test(n));
   await Promise.all(parts.map(async path=>{
     const cd=parse(await zip.file(path).async('string'));
+    const chartNumber=Number(path.match(/chart(\\d+)\\.xml$/)?.[1]||0);
+    if(chartNumber===1||chartNumber===2){
+      const title=cd.getElementsByTagNameNS(C,'title')[0];
+      const aText=title?.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','t')[0];
+      if(aText)aText.textContent='مقياس السلوك';
+    }
     for(const name of ['numRef','strRef']){
       const refs=Array.from(cd.getElementsByTagNameNS(C,name));
       for(const ref of refs){
