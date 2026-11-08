@@ -206,7 +206,6 @@ async function createReport(buffer,record){
   }
   const map=new Map(),rows=new Map();
   for(const row of Array.from(sd.getElementsByTagNameNS(NS,'row')))rows.set(Number(row.getAttribute('r')),row);
-  const sampleName=strings.includes('')?null:null;
   for(const row of rows.values())for(const cell of children(row,'c')){
     const ref=cell.getAttribute('r'),rn=Number(ref.match(/\d+$/)?.[0]||0),cn=columnNo(ref),old=xmlValue(cell,strings);
     if(rn>1&&(cn<=11 || child(cell,'f') || (!isNaN(Number(old))&&old!==''))){
