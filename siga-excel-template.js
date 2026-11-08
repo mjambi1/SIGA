@@ -2,7 +2,6 @@
    The template remains in this browser's IndexedDB and is never uploaded. */
 (function(){
 'use strict';
-const STORAGE='siga_visual_excel_template_v1';
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const C='http://schemas.openxmlformats.org/drawingml/2006/chart';
 let templateInMemory=null, busy=false;
@@ -33,52 +32,20 @@ function setContent(cell,value){
 }
 function getQuestionList(type){return typeof questionsFor==='function'?questionsFor(type):[]}
 function selectedRecords(){return adminRecords.filter(r=>adminSelected.has(r.id))}
-function dbOpen(){return new Promise((resolve,reject)=>{
-  if(!('indexedDB' in window)){reject(Error('unavailable'));return}
-  const req=indexedDB.open('siga-excel-templates',1);
-  req.onupgradeneeded=()=>req.result.createObjectStore('templates');
-  req.onerror=()=>reject(req.error);req.onsuccess=()=>resolve(req.result);
-})}
 async function getTemplate(){
   if(templateInMemory)return templateInMemory;
-  try{const db=await dbOpen();return await new Promise((resolve,reject)=>{
-    const tx=db.transaction('templates','readonly'),req=tx.objectStore('templates').get(STORAGE);
-    req.onsuccess=()=>{templateInMemory=req.result||null;db.close();resolve(templateInMemory)};
-    req.onerror=()=>{db.close();reject(req.error)};
-  })}catch{return null}
-}
-async function putTemplate(buffer){
-  templateInMemory=buffer;
-  try{const db=await dbOpen();await new Promise((resolve,reject)=>{
-    const tx=db.transaction('templates','readwrite');tx.objectStore('templates').put(buffer,STORAGE);
-    tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)};
-  })}catch{alert('تم تحميل القالب، لكنه قد يحتاج إلى اختياره من جديد في زيارة لاحقة لأن المتصفح لم يسمح بحفظه.')}
-}
-function notice(s){const el=document.getElementById('sigaExcelStatus');if(el)el.textContent=s}
-function fileInput(){return document.getElementById('sigaExcelTemplateInput')}
-async function uploadTemplate(file){
-  if(!file)return;
-  if(file.size>5*1024*1024){alert('الحد الأقصى للقالب 5 ميغابايت.');return}
-  try{
-    if(!window.JSZip)throw Error('تعذر تحميل أداة Excel. تأكد من اتصال الإنترنت.');
-    const data=await file.arrayBuffer(),zip=await JSZip.loadAsync(data);
-    const charts=Object.keys(zip.files).filter(x=>/^xl\/charts\/chart\d+\.xml$/.test(x)).length;
-    if(!zip.file('xl/worksheets/sheet1.xml')||charts<19)throw Error('اختر ملف إجابات SIGA الأصلي الذي يحتوي على الرسومات البيانية التسعة عشر.');
-    await putTemplate(data);
-    notice('✓ القالب محفوظ على هذا الجهاز — 19 رسمًا بيانيًا بالألوان الأصلية');
-  }catch(e){alert('تعذّر قراءة قالب Excel: '+(e?.message||e))}
+  const res=await fetch('/siga-report-template.b64?v=1',{cache:'force-cache'});
+  if(!res.ok)throw Error('تعذّر تحميل نموذج الإكسل المعتمد من الموقع.');
+  const text=(await res.text()).replace(/\s+/g,'');
+  if(!text.startsWith('UEsDB')||!/^[A-Za-z0-9+/=]+$/.test(text))throw Error('نموذج الإكسل غير صالح.');
+  const decoded=atob(text),bytes=new Uint8Array(decoded.length);
+  for(let i=0;i<decoded.length;i++)bytes[i]=decoded.charCodeAt(i);
+  templateInMemory=bytes.buffer;
+  return templateInMemory;
 }
 function install(){
-  const btn=document.getElementById('exportSelectedBtn');if(!btn||fileInput())return;
-  btn.textContent='تنزيل Excel بنفس الألوان والرسومات';
-  const wrap=document.createElement('div');wrap.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;direction:rtl';
-  const label=document.createElement('label');label.htmlFor='sigaExcelTemplateInput';label.textContent='اختيار قالب الرسومات (مرة واحدة)';
-  label.style.cssText='padding:9px 12px;border:1px solid #b8c8d7;border-radius:8px;cursor:pointer;background:#f4f8fc;color:#23364b;font-size:13px';
-  const input=document.createElement('input');input.id='sigaExcelTemplateInput';input.type='file';input.accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';input.style.cssText='position:absolute;width:1px;height:1px;opacity:0';
-  input.addEventListener('change',()=>uploadTemplate(input.files?.[0]));
-  const status=document.createElement('span');status.id='sigaExcelStatus';status.textContent='يُحفظ القالب في متصفحك فقط، ولا يُرفع إلى الخادم.';status.style.cssText='font-size:12px;color:#46556c';
-  wrap.append(label,input,status);btn.insertAdjacentElement('afterend',wrap);
-  getTemplate().then(b=>{if(b)notice('✓ قالب الرسومات محفوظ وجاهز للتصدير')});
+  const btn=document.getElementById('exportSelectedBtn');
+  if(btn){btn.textContent='تنزيل Excel بنفس الألوان والرسومات';btn.title='تصدير إجابات المختبر ونتائجه بنفس رسوم وتنسيقات نموذج SIGA تلقائيًا';}
 }
 function norm(s){return String(s||'').replace(/[()]/g,'').replace(/[\u064b-\u065f]/g,'').replace(/\s+/g,' ').trim()}
 function dimensions(record,indicator){const groups=record.results||{};const match=Object.keys(groups).find(k=>norm(k)===norm(indicator));return groups[match]||{}}
@@ -263,8 +230,8 @@ window.exportAdminExcel=async function(){
   const records=selectedRecords();
   if(!records.length){alert('حدد نتيجة واحدة أو أكثر أولًا.');return}
   if(!window.JSZip){alert('تعذر تحميل أداة Excel. تحقق من اتصال الإنترنت ثم حدّث الصفحة.');return}
-  const buffer=await getTemplate();
-  if(!buffer){alert('اختر ملف «إجابات سيجا.xlsx» الأصلي مرة واحدة لتفعيل نفس الألوان والرسومات. سيبقى القالب محفوظًا على هذا الجهاز فقط.');fileInput()?.click();return}
+  let buffer;
+  try{buffer=await getTemplate()}catch(e){alert('تعذّر تجهيز ملف الإكسل: '+(e?.message||'تأكد من اتصال الإنترنت.'));return}
   busy=true;const button=document.getElementById('exportSelectedBtn');if(button)button.disabled=true;
   try{
     if(records.length===1){
