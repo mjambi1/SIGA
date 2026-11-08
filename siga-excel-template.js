@@ -96,6 +96,10 @@ function score(record,indicator,label){
   if(indicator==='هولاند')return Math.min(1,(Number(a.score)||0)/16);
   if(indicator==='القيم')return Math.min(1,(Number(a.score)||0)/2);
   const maximum=Number(a.max)||0;
+  const responses=Number(a.count)||maximum/3;
+  if((indicator==='الذكاءات'||indicator==='الجدارات')&&responses>0){
+    return Math.max(0,Math.min(1,((Number(a.score)||0)+responses)/(4*responses)));
+  }
   return Math.max(0,Math.min(1,maximum>0?(Number(a.score)||0)/maximum:(Number(a.pct)||0)/100));
 }
 function valueCount(r,name){return Number(metric(r,'القيم',name)?.score)||0}
