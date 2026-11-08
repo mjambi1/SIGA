@@ -47,7 +47,7 @@ function install(){
   const btn=document.getElementById('exportSelectedBtn');
   if(btn){btn.textContent='تنزيل Excel بنفس الألوان والرسومات';btn.title='تصدير إجابات المختبر ونتائجه بنفس رسوم وتنسيقات نموذج SIGA تلقائيًا';}
 }
-function norm(s){return String(s||'').replace(/[()]/g,'').replace(/[\u064b-\u065f]/g,'').replace(/\s+/g,' ').trim()}
+function norm(s){return String(s||'').replace(/[()]/g,'').replace(/[\u064b-\u065f]/g,'').replace(/[–—-]/g,' ').replace(/^\d+\s*[.]\s*/,'').replace(/^الذكاء\s+/,'').replace(/\s+/g,' ').trim()}
 function dimensions(record,indicator){const groups=record.results||{};const match=Object.keys(groups).find(k=>norm(k)===norm(indicator));return groups[match]||{}}
 function metric(record,indicator,label){
   const group=dimensions(record,indicator),query=norm(label);
@@ -115,12 +115,21 @@ function summary(record,set){
   intelligence.forEach((label,i)=>{const v=score(record,'الذكاءات',label),row=85+i;set('M'+row,label);set('N'+row,v);set('O'+row,v*8)});
   const holland=['R الواقعي','I البحثي','A الفني','S الاجتماعي','E الريادي','C التنظيمي'];
   holland.forEach((label,i)=>{const v=score(record,'هولاند',label),row=96+i;set('M'+row,label);set('N'+row,v);set('O'+row,v*16)});
-  let r=108;for(const [group,labels] of Object.entries(compGroups)){
-    labels.forEach(label=>{const v=score(record,'الجدارات',label);set('O'+r,label);set('Q'+r,v);set('P'+r,v*8);r++});
+  const isStudent=assessmentTypeOf(record)==='student';
+  const studentGroups={
+    'قيادة الذات':['1. إدارة الذات والانضباط','2. التخطيط وإدارة الوقت','3. تحمل المسؤولية','4. التعلم الذاتي'],
+    'قيادة الآخرين':['6. التواصل الفعّال','7. التعاون والعمل الجماعي','8. المرونة والتكيف'],
+    'قيادة العمل':['5. حل المشكلات واتخاذ القرار']
+  };
+  const groups=isStudent?studentGroups:compGroups;
+  const dims=Object.values(groups).flat();
+  for(let i=0;i<12;i++){
+    const label=dims[i]||'',v=label?score(record,'الجدارات',label):0,row=108+i;
+    set('O'+row,label);set('Q'+row,v);set('P'+row,v*8);
   }
-  Object.entries(compGroups).forEach(([group,labels],i)=>{
+  Object.entries(groups).forEach(([group,labels],i)=>{
     const v=labels.reduce((sum,label)=>sum+score(record,'الجدارات',label),0)/labels.length,row=114+i;
-    set('R'+row,group);set('S'+row,v);set('T'+row,v*32)
+    set('R'+row,group);set('S'+row,v);set('T'+row,v*32);
   });
 }
 function buildRows(record,set){
