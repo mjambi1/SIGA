@@ -208,8 +208,9 @@ function rangeValues(formula,cellValues){
 function chartCache(doc,parent,cacheName,values,numeric){
   let cache=child(parent,cacheName);
   if(!cache){cache=elem(doc,C,cacheName);parent.appendChild(cache)}
+  const existingFormat=child(cache,'formatCode')?.textContent||'0%';
   while(cache.firstChild)cache.removeChild(cache.firstChild);
-  if(numeric){const f=elem(doc,C,'formatCode');f.textContent='0.0%';cache.appendChild(f)}
+  if(numeric){const f=elem(doc,C,'formatCode');f.textContent=existingFormat;cache.appendChild(f)}
   const count=elem(doc,C,'ptCount');count.setAttribute('val',String(values.length));cache.appendChild(count);
   values.forEach((v,i)=>{const pt=elem(doc,C,'pt'),node=elem(doc,C,'v');pt.setAttribute('idx',String(i));node.textContent=String(numeric?(Number(v)||0):v);pt.appendChild(node);cache.appendChild(pt)});
 }
@@ -255,7 +256,7 @@ async function createReport(buffer,record){
   const parts=Object.keys(zip.files).filter(n=>/^xl\/charts\/chart\d+\.xml$/.test(n));
   await Promise.all(parts.map(async path=>{
     const cd=parse(await zip.file(path).async('string'));
-    const chartNumber=Number(path.match(/chart(\\d+)\\.xml$/)?.[1]||0);
+    const chartNumber=Number(path.match(/chart([0-9]+)[.]xml$/)?.[1]||0);
     if(chartNumber===1||chartNumber===2){
       const title=cd.getElementsByTagNameNS(C,'title')[0];
       const aText=title?.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','t')[0];
