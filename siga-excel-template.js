@@ -1,5 +1,6 @@
-/* SIGA visual Excel export - preserves the user's own .xlsx chart template.
-   The template remains in this browser's IndexedDB and is never uploaded. */
+/* SIGA Excel export: one-click download using the sanitized 19-chart
+   workbook bundled with the site. Admin records are processed locally
+   and never sent to another service during the export. */
 (function(){
 'use strict';
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
